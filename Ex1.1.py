@@ -1,7 +1,7 @@
 import sys
 import random
-N = 100
-k = 90
+N = int(input("N = "))
+k = int(input("k = "))
 L = []
 M = []
 i = 0
