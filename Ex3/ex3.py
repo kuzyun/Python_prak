@@ -1,6 +1,5 @@
 import sys
 import numpy as np
-import os
 import matplotlib.pyplot as pyplot
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -10,18 +9,18 @@ import tkinter.ttk as ttk
 from tkinter.filedialog import askopenfilename
 from tkinter.filedialog import asksaveasfilename
 import xml.etree.ElementTree as ET
+from xml.dom import minidom
 from scipy import constants
 from scipy import integrate
-import scipy
 import time
 
+colorsdict = {0: 'Red', 1: 'Blue', 2: 'Green', 3: 'Yellow'}
 class CircleGUI:
+    circles = 0
     def __init__(self, master):
         self.master = master
         self.master.title("Task 3")
-
-        circles = CircleList
-
+        self.circles = CircleList
         plot = PlotArea(self.master)
         buttons = Buttons(master, plot)
         tabs = Tabs(master)
@@ -31,9 +30,10 @@ class CircleGUI:
         colorpick = Colorpick(tabs.Edit)
         slider = Slider(tabs.Edit)
         plot.canvas.mpl_connect('button_press_event', lambda event: OnClick(event))
-        openbutton = Button(master, text="Open", command=self.OpenFile)
+        openbutton = Button(master, text="Open", command=lambda : self.OpenFile(plot=plot, _slider=slider, _colorpick=colorpick))
         openbutton.pack(fill=X)
-        savebutton = Button(master, text="Save", command=self.SaveFile)
+        savebutton = Button(master, text="Save", command=lambda : self.SaveFile(circles=self.circles, plot=plot,
+                                                                                colorpick=colorpick, slider=slider))
         savebutton.pack(fill=X)
         rb = RadioButt(tabs.Model, plot)
 
@@ -51,22 +51,49 @@ class CircleGUI:
             x, y = labels.xcoord.cget("text"), labels.ycoord.cget("text")
             radius = slider.slider.get()
             colour = colorpick.colorpick.get()
-            circles.addcircle(circles, radius, x, y, colour)
+
+            self.circles.addcircle(self.circles, radius, x, y, colour)
             circle = pyplot.Circle((x, y), radius=radius, color=colour)
             plot.subplot.add_patch(circle)
             plot.canvas.show()
 
-    def OpenFile(event):
+    def OpenFile(event, plot, _slider, _colorpick):
+        plot.subplot.cla()
         filename = askopenfilename(filetypes=[("XML files", "*.xml")])
         tree = ET.parse(filename)
-        root = tree.getroot()
-        # print(root)
+        CircleGUI.circles = []
+        for node in tree.iter('settings'):
+            xlim = float(node.attrib.get('xlim'))
+            ylim = float(node.attrib.get('ylim'))
+            color = node.attrib.get('color')
+            slider = float(node.attrib.get('slider'))
+            Axes.set_xlim(plot.subplot, -xlim, xlim)
+            Axes.set_ylim(plot.subplot, -ylim, ylim)
+            _colorpick.colorpick.current(colorsdict.get(color))
+            _slider.slider.set(slider)
 
+        for node in tree.iter('circle'):
+            x = float(node.attrib.get('x'))
+            y = float(node.attrib.get('y'))
+            r = float(node.attrib.get('radius'))
+            color = node.attrib.get('color')
+            CircleGUI.circles.append({'r': r, 'x': x, 'y': y, 'color': color})
+            circle = pyplot.Circle((x, y), radius=r, color=color)
+            plot.subplot.add_patch(circle)
+        plot.canvas.show()
 
-
-    def SaveFile(event):
+    def SaveFile(event, circles, plot, colorpick, slider):
+        root = ET.Element('data')
+        ET.SubElement(root, 'settings', {'xlim': str(Axes.get_xbound(plot.subplot)[1]), 'ylim': str(Axes.get_ybound(plot.subplot)[1]),
+                                         'color': colorpick.colorpick.get(), 'slider': str(slider.slider.get())})
+        # print(type(Axes.get_xbound(plot.subplot)))
+        for el in circles.circlelist:
+            child = ET.SubElement(root, 'circle', {'x': str(el['x']), 'y': str(el['y']), 'radius': str(el['r']), 'color': el['color']})
+        # ET.dump(root)
         filename = asksaveasfilename(filetypes=[("XML files", "*.xml")])
-        f = open(filename, 'w')
+        tree = ET.ElementTree(root)
+        tree.write(filename)
+
 
 class PlotArea:
     canvas = 0
@@ -126,7 +153,8 @@ class Tabs:
 class Colorpick:
     colorpick = 0
     def __init__(self, master):
-        self.colorpick = ttk.Combobox(master, values=['Red', 'Green', 'Blue', 'Yellow'])
+        combobox_values = "\n".join(colorsdict.values())
+        self.colorpick = ttk.Combobox(master, values=combobox_values)
         self.colorpick.current(0)
         self.colorpick.pack()
 
@@ -181,7 +209,7 @@ class RadioButt:
 class CircleList:
     circlelist = []
     def addcircle(self, _r, _x, _y, _color):
-        circle = {'r':_r, 'x': _x, 'y': _y, 'color': _color}
+        circle = {'r': _r, 'x': _x, 'y': _y, 'color': _color}
         self.circlelist.append(circle)
 
 def pend(y, t, m):
@@ -267,14 +295,13 @@ def Verlet_threading(params, time):
 def PrintOrbit(plot, sol):
     dt = len(sol)
     N = int(len(sol[0]) / 4)
-    Colors = {1:'Red', 2:'Blue', 3:'Green', 4:'Yellow'}
     for i in range(dt):
         Axes.set_xlim(plot.subplot, -2e11, 2e11)
         Axes.set_ylim(plot.subplot, -2e11, 2e11)
         # Axes.set_xlim(plot.subplot, -20, 20)
         # Axes.set_ylim(plot.subplot, -20, 20)
         for j in range(N):
-            circle = pyplot.Circle((sol[i][j * N], sol[i][j * N + 1]), radius=2e9, color=Colors.get(j))
+            circle = pyplot.Circle((sol[i][j * N], sol[i][j * N + 1]), radius=2e9, color=colorsdict.get(j))
             plot.subplot.add_patch(circle)
             plot.canvas.show()
         time.sleep(0.01)

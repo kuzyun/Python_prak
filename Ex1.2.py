@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 #[b1, b2] - второй отрезок
 def isinrange(a, b):
     if min(a[0], a[1]) > max(b[0], b[1]) or max(a[0], a[1]) < min(b[0], b[1]):
-        return "Не пересекаются"
+        return (0)
     return [max(min(a[0], a[1]), min(b[0], b[1])), min(max(a[0], a[1]), max(b[0], b[1]))]
 
 def Tr1Plain(X, N1, Tr1):
@@ -32,26 +32,29 @@ def IsCrossed(Tr2, Tr1):
 
     N2 = numpy.cross([Tr2[1][0]**2 - Tr2[0][0]**2, Tr2[1][1]**2 - Tr2[0][1]**2, Tr2[1][2]**2 - Tr2[0][2]**2],
                      [Tr2[2][0]**2 - Tr2[0][0]**2, Tr2[2][1]**2 - Tr2[0][1]**2, Tr2[2][2]**2 - Tr2[0][2]**2])
-    print()
     d1 = [0, 0, 0]
     d2 = [0, 0, 0]
 
     for i in range(0, 3):
         d1[i] = Tr2Plain(Tr1[i], N1, Tr2)
         d2[i] = Tr1Plain(Tr2[i], N2, Tr1)
+
     if((d1[0] * d1[1] > 0 and d1[1] * d1[2] > 0 and d1[0] * d1[2] > 0) and
         (d2[0] * d2[1] > 0 and d2[1] * d2[2] > 0 and d2[0] * d2[2] > 0)):
-        return ("Треугольники не пересекаются")
+        # print("check1")
+        return (0)
     # if (d2[0] * d2[1] > 0 and d2[1] * d2[2] > 0 and d2[0] * d2[2] > 0):# and (d2[0] == 0 and d2[1] == 0 and d2[2] == 0)):
     #     print("check2")
     #     return ("Треугольники не пересекаются")
-    if ((d1[0] == 0 or d1[1] == 0 or d1[2] == 0) and not(d1[0] == 0 and d1[1] == 0 and d1[2] == 0)):
+    # if ((d1[0] == 0 or d1[1] == 0 or d1[2] == 0)):# and not(d1[0] == 0 and d1[1] == 0 and d1[2] == 0)):
+    if ((d1[0] == 0 and d1[1] == 0 and d1[2] == 0) and (d2[0] == 0 and d2[1] == 0 and d2[2] == 0)):
         for i in range(0, 3):
             if d1[i] == 0:
                 bar = []
                 for j in range(0, 3):
                     if [Tr2[j][0] - Tr1[i][0], Tr2[j][1] - Tr1[i][1], Tr2[j][2] - Tr1[i][2]] == [0, 0, 0] or [Tr2[(j + 1) % 3][0] - Tr1[i][0], Tr2[(j + 1) % 3][1] - Tr1[i][1], Tr2[(j + 1) % 3][2] - Tr1[i][2]] == [0, 0, 0]:
-                        return ("Треугольники пересекаются")
+                        # print("check2")
+                        return (1)
                     bar.append(float(numpy.dot([Tr2[j][0] - Tr1[i][0], Tr2[j][1] - Tr1[i][1], Tr2[j][2] - Tr1[i][2]],
                                 [Tr2[(j + 1) % 3][0] - Tr1[i][0], Tr2[(j + 1) % 3][1] - Tr1[i][1], Tr2[(j + 1) % 3][2] - Tr1[i][2]])
                                / VecAbs([Tr2[j][0] - Tr1[i][0], Tr2[j][1] - Tr1[i][1], Tr2[j][2] - Tr1[i][2]])
@@ -61,43 +64,48 @@ def IsCrossed(Tr2, Tr1):
                         if l < 0:
                             k = k + 1
                     if k >= 2:
-                        return("Треугольники пересекаются")
-        return ("Треугольники не пересекаются")
-    if ((d2[0] == 0 or d2[1] == 0 or d2[2] == 0) and not(d2[0] == 0 and d2[1] == 0 and d2[2] == 0)):
-        for i in range(0, 3):
-            if d2[i] == 0:
-                bar = []
-                for j in range(0, 3):
-                    # if [Tr1[j][0] - Tr2[i][0], Tr1[j][1] - Tr2[i][1], Tr1[j][2] - Tr2[i][2]] == [0, 0, 0] or [Tr1[(j + 1) % 3][0] - Tr1[i][0], Tr1[(j + 1) % 3][1] - Tr1[i][1], Tr1[(j + 1) % 3][2] - Tr1[i][2]] == [0, 0, 0]:
-                    #     print("Треугольники пересекаются")
-                    #     sys.exit(0)
-                    bar.append(float(numpy.dot([Tr1[j][0] - Tr2[i][0], Tr1[j][1] - Tr2[i][1], Tr1[j][2] - Tr2[i][2]],
-                                               [Tr1[(j + 1) % 3][0] - Tr2[i][0], Tr1[(j + 1) % 3][1] - Tr2[i][1],
-                                                Tr1[(j + 1) % 3][2] - Tr2[i][2]])
-                                     / VecAbs([Tr1[j][0] - Tr2[i][0], Tr1[j][1] - Tr2[i][1], Tr1[j][2] - Tr2[i][2]])
-                                     / VecAbs([Tr1[(j + 1) % 3][0] - Tr2[i][0], Tr1[(j + 1) % 3][1] - Tr2[i][1], Tr1[(j + 1) % 3][2] - Tr2[i][2]])))
-                    k = 0
-                    print(bar)
-                    for l in bar:
-                        if l < 0:
-                            k = k + 1
-                    if k >= 2:
-                        return ("Треугольники пересекаются")
-        return ("Треугольники не пересекаются")
+                        # print("check3")
+                        return (1)
+        # print("check4")
+        return(0)
+    # if ((d2[0] == 0 or d2[1] == 0 or d2[2] == 0)):# and not(d2[0] == 0 and d2[1] == 0 and d2[2] == 0)):
+    # if ((d2[0] == 0 and d2[1] == 0 and d2[2] == 0)):
+    #     for i in range(0, 3):
+    #         if d2[i] == 0:
+    #             bar = []
+    #             for j in range(0, 3):
+    #                 # if [Tr1[j][0] - Tr2[i][0], Tr1[j][1] - Tr2[i][1], Tr1[j][2] - Tr2[i][2]] == [0, 0, 0] or [Tr1[(j + 1) % 3][0] - Tr1[i][0], Tr1[(j + 1) % 3][1] - Tr1[i][1], Tr1[(j + 1) % 3][2] - Tr1[i][2]] == [0, 0, 0]:
+    #                 #     print("Треугольники пересекаются")
+    #                 #     sys.exit(0)
+    #                 bar.append(float(numpy.dot([Tr1[j][0] - Tr2[i][0], Tr1[j][1] - Tr2[i][1], Tr1[j][2] - Tr2[i][2]],
+    #                                            [Tr1[(j + 1) % 3][0] - Tr2[i][0], Tr1[(j + 1) % 3][1] - Tr2[i][1],
+    #                                             Tr1[(j + 1) % 3][2] - Tr2[i][2]])
+    #                                  / VecAbs([Tr1[j][0] - Tr2[i][0], Tr1[j][1] - Tr2[i][1], Tr1[j][2] - Tr2[i][2]])
+    #                                  / VecAbs([Tr1[(j + 1) % 3][0] - Tr2[i][0], Tr1[(j + 1) % 3][1] - Tr2[i][1], Tr1[(j + 1) % 3][2] - Tr2[i][2]])))
+    #                 k = 0
+    #                 for l in bar:
+    #                     if l < 0:
+    #                         k = k + 1
+    #                 if k >= 2:
+    #                     print("check5")
+    #                     return("true")
+    #     print("check6")
+    #     return("false")
+
     ind1 = 0
     ind2 = 0
     if d1[0] * d1[1] >= 0:
         ind1 = 2
-    if d1[0] * d1[2] > 0:
+    if d1[0] * d1[2] >= 0:
         ind1 = 1
-    if d1[2] * d1[1] > 0:
+    if d1[2] * d1[1] >= 0:
         ind1 = 0
 
-    if d2[0] * d2[1] > 0:
+    if d2[0] * d2[1] >= 0:
         ind2 = 2
-    if d2[0] * d2[2] > 0:
+    if d2[0] * d2[2] >= 0:
         ind2 = 1
-    if d2[2] * d2[1] > 0:
+    if d2[2] * d2[1] >= 0:
         ind2 = 0
     D = numpy.cross(N1, N2)
     p1 = [0, 0, 0]
@@ -116,22 +124,26 @@ def IsCrossed(Tr2, Tr1):
     range2 = []
     for i in range(0, 3):
         if i != ind1:
+            t1 = 0
             if d1[i] != d1[ind1]:
                 t1 = p1[i] + (p1[ind1] - p1[i]) * float(d1[i] / (d1[i] - d1[ind1]))
-            else:
-                return ("Треугольники пересекаются")
+            # else:
+            #     print("check7")
+            #     return("true")
             range1.append(t1)
         if i != ind2:
+            t2 = 0
             if d2[i] != d2[ind2]:
                 t2 = p2[i] + (p2[ind2] - p2[i]) * float(d2[i] / (d2[i] - d2[ind2]))
-            else:
-                return ("Треугольники пересекаются")
+            # else:
+            #     print("check7.1")
+            #     return("true")
             range2.append(t2)
     if isinstance(isinrange(range1, range2), str):
-        print("check8")
-        return("Треугольники не пересекаются")
-    print("check9")
-    return ("Треугольники пересекаются")
+        # print("check8")
+        return(0)
+    # print("check9")
+    return(1)
 
 def PrintTri(Tr1, Tr2):
     ax = a3.Axes3D(plt.figure())
@@ -198,7 +210,7 @@ p1 = [0, 0, 0]
 p2 = [0, 4, 0]
 p3 = [4, 0, 0]
 tr1 = [p1, p2, p3]
-q1 = [1, 2, 0]
+q1 = [1, 2, -1]
 q2 = [1, 1, -3]
 q3 = [0.5, 2, -2]
 tr2 = [q1, q2, q3]
@@ -249,5 +261,11 @@ tr2 = [q1, q2, q3]
 trianglePairs.append((tr1, tr2))
 
 for i in range(0, 9):
+    print(i + 1, ":")
+    f1 = IsCrossed(trianglePairs[i][0], trianglePairs[i][1])
+    f2 = IsCrossed(trianglePairs[i][1], trianglePairs[i][0])
+    if (f1 or f2):
+        print("Треугольники пересекаются")
+    else:
+        print("Треугольники не пересекаются")
     PrintTri(trianglePairs[i][0], trianglePairs[i][1])
-    print(IsCrossed(trianglePairs[i][0], trianglePairs[i][1]))
