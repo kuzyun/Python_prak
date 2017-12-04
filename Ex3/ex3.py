@@ -16,8 +16,9 @@ import time
 import threading
 from queue import Queue
 import mpl_toolkits.mplot3d as a3
+import random
 
-colorsdict = {0: 'Red', 1: 'Blue', 2: 'Green', 3: 'Yellow'}
+colorsdict = {0: 'Red', 1: 'Blue', 2: 'Green', 3: 'Yellow', 4: 'Black'}
 class CircleGUI:
     circles = 0
     def __init__(self, master):
@@ -185,23 +186,14 @@ class RadioButt:
         def sel():
             selection = v.get()
             Sun = [[0, 0, 0], [0, 0, 0], 1.99e30]
-            Earth = [[-1.496e110, 0, 0], [0, -29.783e3, 0], 5.98e24]
-            Moon = [[-1.496e11, -384467000, 0], [1020, -29.783e3, 0], 7.32e22]
+            Earth = [[-1.496e11, 0, 0], [0, 29.783e3, 0], 5.98e24]
+            Moon = [[-1.496e11, -384467000, 0], [1020, 29.783e3, 0], 7.32e22]
+            Mercury = [[-5.791e10, 0, 0], [0, 48e3, 0], 3.285e23]
+            Mars = [[-2.279e11, 0, 0], [0, 24.1e3, 0], 6.39e23]
             time = 3.154e7
-            # Sun = [[0, 0], [0, 0], 10]
-            # Earth = [[10, 0], [0, 2], 2]
-            # Moon = [[9, 0], [0, -1], 1]
-            # time = 100
-            Bodies = [Sun, Earth, Moon]
-            if selection == "Scipy":
-                sol = ScipySolve(Bodies, time)
-                PrintOrbit(plot, sol)
-            if selection == "Verlet":
-                sol = Verlet(Bodies, time)
-                PrintOrbit(plot, sol)
-            if selection == "Verlet-threading":
-                sol = Verlet_threading(Bodies, time)
-                PrintOrbit(plot, sol)
+            Bodies = [Sun, Moon, Earth, Mercury, Mars]
+            sol = VerletModule(Bodies, time, selection)
+            PrintOrbit(plot, sol)
 
         v = StringVar()
         v.set(1)
@@ -240,6 +232,17 @@ def pend(y, t, m):
         dydt.append(f3)
     return dydt
 
+#Модуль для всех методов Верле
+def VerletModule(Bodies, time, funcname):
+    if funcname == "Scipy":
+        sol = ScipySolve(Bodies, time)
+    if funcname == "Verlet":
+        sol = Verlet(Bodies, time)
+    if funcname == "Verlet-threading":
+        sol = Verlet_threading(Bodies, time)
+    return sol
+
+
 #Вычисление положения тел в течение времени time. Params - массив, описывающий тела
 def ScipySolve(params, time):
     N = len(params)
@@ -255,23 +258,23 @@ def ScipySolve(params, time):
 #Алгоритм Верле для гравитационной задачи N тел
 def Verlet(params, time):
     N = len(params)
+    print(N)
     G = constants.G
     t = np.linspace(0, time, 101)
     dt = t[1] - t[0]
     sol = []
     y0 = []
     m = []
-    sol.append([])
     for i in range(N):
         y0.extend([params[i][0][0], params[i][0][1], params[i][0][2], params[i][1][0], params[i][1][1], params[i][1][2]])
         m.append(params[i][2])
-    sol[0].extend(y0)
-    ai1 = 0
-    ai2 = 0
-    ai3 = 0
+    sol.append(y0)
     A = []
     for j in range(N):
         A.append([])
+        ai1 = 0
+        ai2 = 0
+        ai3 = 0
         for k in range(N):
             if k != j:
                 r = np.linalg.norm(
@@ -281,6 +284,7 @@ def Verlet(params, time):
                 ai2 = ai2 + tmp * (sol[0][k * 6 + 1] - sol[0][j * 6 + 1])
                 ai3 = ai3 + tmp * (sol[0][k * 6 + 2] - sol[0][j * 6 + 2])
         A[j].extend([ai1, ai2, ai3])
+    print("A: ", A)
     for i in range(1, len(t)):
         iter = []
         sol.append([])
@@ -288,12 +292,12 @@ def Verlet(params, time):
             iter.append(sol[i - 1][j * 6] + sol[i - 1][j * 6 + 3] * dt + 0.5 * A[j][0] * dt ** 2)
             iter.append(sol[i - 1][j * 6 + 1] + sol[i - 1][j * 6 + 4] * dt + 0.5 * A[j][1] * dt ** 2)
             iter.append(sol[i - 1][j * 6 + 2] + sol[i - 1][j * 6 + 5] * dt + 0.5 * A[j][2] * dt ** 2)
-        f1 = 0
-        f2 = 0
-        f3 = 0
         F = []
         for j in range(N):
             F.append([])
+            f1 = 0
+            f2 = 0
+            f3 = 0
             for k in range(N):
                 if k != j:
                     r = np.linalg.norm([iter[k * 3] - iter[j * 3], iter[k * 3 + 1] - iter[j * 3 + 1], iter[k * 3 + 2] - iter[j * 3 + 2]]) ** 3
@@ -393,15 +397,34 @@ def Verlet_threading(params, time):
     e1.set()
     res = q.get()
 
+#Генерация К тел
+def BodyGenerator(K):
+    Bodies = []
+    for i in range(K):
+        Bodies.append([])
+        if i == 0:
+            Bodies[i].append([0, 0, 0])
+            Bodies[i].append([0, 0, 0])
+            m = random.uniform()
 
 
+#Вычисление времени работы метода
+def CompTime(methodname, N, M, Bodies):
+    avrtime = 0
+    for i in range(M):
+        start_time = time.time()
+        VerletModule(Bodies, methodname)
+        avrtime = avrtime + (time.time() - start_time)
+    avrtime = avrtime / M
+    return avrtime
+#Отображение полученных орбит
 def PrintOrbit(plot, sol):
     dt = len(sol)
     N = int(len(sol[0]) / 6)
     print(sol[0], sol[1])
     for i in range(dt):
-        Axes.set_xlim(plot.subplot, -2e11, 2e11)
-        Axes.set_ylim(plot.subplot, -2e11, 2e11)
+        Axes.set_xlim(plot.subplot, -3e11, 3e11)
+        Axes.set_ylim(plot.subplot, -3e11, 3e11)
         # ax.set_xlim(-2e11, 2e11)
         # ax.set_ylim(-2e11, 2e11)
         # ax.set_zlim(-2e11, 2e11)
