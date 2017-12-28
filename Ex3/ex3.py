@@ -20,8 +20,9 @@ import multiprocessing
 from multiprocessing import Process, sharedctypes
 import mpl_toolkits.mplot3d as a3
 import random
+import ex3
 
-colorsdict = {0: 'Red', 1: 'Blue', 2: 'Green', 3: 'Grey', 4: 'Black'}
+colorsdict = {0: 'Red', 1: 'Blue', 2: 'Green', 3: 'Grey', 4: 'Black', 5: 'Red'}
 class CircleGUI:
     circles = 0
     def __init__(self, master):
@@ -196,9 +197,13 @@ class RadioButt:
             Moon = [[-1.496e11, -384467000, 0], [1020, 29.783e3, 0], 7.32e22]
             Mercury = [[-5.791e10, 0, 0], [0, 48e3, 0], 3.285e23]
             Mars = [[-2.279e11, 0, 0], [0, 24.1e3, 0], 6.39e23]
-            time = 3.154e7
-            Bodies = [Sun, Moon, Earth, Mercury, Mars]
-            sol = VerletModule(Bodies, time, selection, t)
+            Body = [[-1.7e11, -1.7e11, 0], [-15e3, 0, 0], 7.32e22]
+            time_cycle = 3.154e7
+            Bodies = [Sun, Moon, Earth, Mercury, Mars, Body]
+            t.set("Computation time: ")
+            start_time = time.time()
+            sol = VerletModule(Bodies, time_cycle, selection)
+            t.set("Computation time: " + str(time.time() - start_time))
             PrintOrbit(plot, sol)
 
         v = StringVar()
@@ -239,9 +244,7 @@ def pend(y, t, m):
     return dydt
 
 #Модуль для всех методов Верле
-def VerletModule(Bodies, cycle_time, funcname, t):
-    t.set("Computation time: ")
-    start_time = time.time()
+def VerletModule(Bodies, cycle_time, funcname):
     if funcname == "Scipy":
         sol = ScipySolve(Bodies, cycle_time)
     if funcname == "Verlet":
@@ -250,7 +253,8 @@ def VerletModule(Bodies, cycle_time, funcname, t):
         sol = Verlet_threading(Bodies, cycle_time)
     if funcname == "Verlet-multiprocessing":
         sol = Verlet_multiprocessing(Bodies, cycle_time)
-    t.set("Computation time: " + str(time.time() - start_time))
+    if funcname == "Verlet-cython":
+        sol = Verlet_cython(Bodies, cycle_time)
     return sol
 
 
@@ -263,7 +267,9 @@ def ScipySolve(params, time):
     for i in range(N):
         y0.extend([params[i][0][0], params[i][0][1], params[i][0][2], params[i][1][0], params[i][1][1], params[i][1][2]] )
         m.append(params[i][2])
+    print("Start scipy")
     sol = integrate.odeint(pend, y0, t, args=(m,), mxstep=5000000)
+    print("Finish scipy")
     sol1 = []
     for i in range(len(t)):
         sol1.append([])
@@ -279,6 +285,7 @@ def ScipySolve(params, time):
 
 #Алгоритм Верле для гравитационной задачи N тел
 def Verlet(params, time):
+    print("Start Verlet computation")
     N = len(params)
     G = constants.G
     t = np.linspace(0, time, 101)
@@ -442,6 +449,7 @@ def Verlet_threading_func(params, body_num, time, sol, y0, m, A, F, iter, event,
 
 #Алгоритм Верле с использованием модуля threading
 def Verlet_threading(params, time):
+    print("Start Verlet-threading computation")
     N = len(params)
     #synced lists
     e = []
@@ -472,31 +480,22 @@ def Verlet_threading(params, time):
     controlthread.join()
     return sol
 
-def Verlet_multiprocessing_func(params, body_nums, process_num, time, event, controlevent, loopthread, sol, A, F, iter, y0, m):
+def Verlet_multiprocessing_func(params, body_nums, process_num, cycle_time, event, controlevent, loopthread, sol, A, F, iter):
     N = len(params)
     G = constants.G
     tmp = range(N)
-    t = np.linspace(0, time, 101)
+    t = np.linspace(0, cycle_time, 101)
     dt = t[1] - t[0]
     for i in body_nums:
-        y0[i * 6] = params[i][0][0]
-        y0[i * 6 + 1] = params[i][0][1]
-        y0[i * 6 + 2] = params[i][0][2]
-        y0[i * 6 + 3] = params[i][1][0]
-        y0[i * 6 + 4] = params[i][1][1]
-        y0[i * 6 + 5] = params[i][1][2]
-        m[i] = params[i][2]
+        sol[i * 6] = params[i][0][0]
+        sol[i * 6 + 1] = params[i][0][1]
+        sol[i * 6 + 2] = params[i][0][2]
+        sol[i * 6 + 3] = params[i][1][0]
+        sol[i * 6 + 4] = params[i][1][1]
+        sol[i * 6 + 5] = params[i][1][2]
     # sync
-    event.set()
     loopthread.set()
-    controlevent.wait()
-    controlevent.clear()
-    if (process_num == 0):
-        for ind in range(len(y0)):
-            sol[ind] = y0[ind]
-    # sync
     event.set()
-    loopthread.set()
     controlevent.wait()
     controlevent.clear()
     ai1 = 0
@@ -508,7 +507,7 @@ def Verlet_multiprocessing_func(params, body_nums, process_num, time, event, con
                 r = np.linalg.norm(
                     [sol[k * 6] - sol[j * 6], sol[k * 6 + 1] - sol[j * 6 + 1],
                      sol[k * 6 + 2] - sol[j * 6 + 2]]) ** 3
-                tmp = G * m[k] / r
+                tmp = G * params[k][2] / r
                 ai1 = ai1 + tmp * (sol[k * 6] - sol[j * 6])
                 ai2 = ai2 + tmp * (sol[k * 6 + 1] - sol[j * 6 + 1])
                 ai3 = ai3 + tmp * (sol[k * 6 + 2] - sol[j * 6 + 2])
@@ -516,15 +515,14 @@ def Verlet_multiprocessing_func(params, body_nums, process_num, time, event, con
         A[j * 3 + 1] = ai2
         A[j * 3 + 2] = ai3
     # sync
-    event.set()
     loopthread.set()
+    event.set()
     controlevent.wait()
     controlevent.clear()
     for i in range(1, len(t)):
-        print("i ", i)
         # sync
-        event.set()
         loopthread.set()
+        event.set()
         controlevent.wait()
         controlevent.clear()
         for j in body_nums:
@@ -532,8 +530,8 @@ def Verlet_multiprocessing_func(params, body_nums, process_num, time, event, con
             iter[j * 3 + 1] = (sol[(i - 1) * N * 6 + j * 6 + 1] + sol[(i - 1) * N * 6 + j * 6 + 4] * dt + 0.5 * A[j * 3 + 1] * dt ** 2)
             iter[j * 3 + 2] = (sol[(i - 1) * N * 6 + j * 6 + 2] + sol[(i - 1) * N * 6 + j * 6 + 5] * dt + 0.5 * A[j * 3 + 2] * dt ** 2)
         # sync
-        event.set()
         loopthread.set()
+        event.set()
         controlevent.wait()
         controlevent.clear()
         for j in body_nums:
@@ -544,16 +542,16 @@ def Verlet_multiprocessing_func(params, body_nums, process_num, time, event, con
                 if k != j:
                     r = np.linalg.norm([iter[k * 3] - iter[j * 3], iter[k * 3 + 1] - iter[j * 3 + 1],
                                         iter[k * 3 + 2] - iter[j * 3 + 2]]) ** 3
-                    tmp = G * m[k] / r
+                    tmp = G * params[k][2] / r
                     f1 = f1 + tmp * (iter[k * 3] - iter[j * 3])
                     f2 = f2 + tmp * (iter[k * 3 + 1] - iter[j * 3 + 1])
                     f3 = f3 + tmp * (iter[k * 3 + 2] - iter[j * 3 + 2])
             F[j * 3] = f1
             F[j * 3 + 1] = f2
             F[j * 3 + 2] = f3
-            # sync
-        event.set()
+        # sync
         loopthread.set()
+        event.set()
         controlevent.wait()
         controlevent.clear()
         for j in body_nums:
@@ -563,111 +561,148 @@ def Verlet_multiprocessing_func(params, body_nums, process_num, time, event, con
             sol[i * N * 6 + j * 6 + 3] = sol[(i - 1) * N * 6 + j * 6 + 3] + 0.5 * (F[j * 3] + A[j * 3]) * dt
             sol[i * N * 6 + j * 6 + 4] = sol[(i - 1) * N * 6 + j * 6 + 4] + 0.5 * (F[j * 3 + 1] + A[j * 3 + 1]) * dt
             sol[i * N * 6 + j * 6 + 5] = sol[(i - 1) * N * 6 + j * 6 + 5] + 0.5 * (F[j * 3 + 2] + A[j * 3 + 2]) * dt
-            # sync
-        event.set()
-        loopthread.set()
-        controlevent.wait()
-        controlevent.clear()
+        # # sync
+        # loopthread.set()
+        # event.set()
+        # controlevent.wait()
+        # controlevent.clear()
         for j in body_nums:
             A[j * 3] = F[j * 3]
             A[j * 3 + 1] = F[j * 3 + 1]
             A[j * 3 + 2] = F[j * 3 + 2]
-    print("Finished")
+        # local_A = F
+        # print(i, time.time() - tmp_time)
+    # print("Finished")
     return sol
 
 #Алгоритм Верле с мультипроцессингом
-def Verlet_multiprocessing(params, time):
-    if __name__ == '__main__':
-        count = multiprocessing.cpu_count() - 1
-        # manager = Manager()
-        t = np.linspace(0, time, 101)
-        N = len(params)
-        bod_in_proc = N // count
-        exc = N % count
-        curr_body = 0
-        processes = []
-        e = []
-        sol = multiprocessing.Array("d", N * len(t) * 6)
-        y0 = multiprocessing.Array("d", N * 6)
-        m = multiprocessing.Array("d", N)
-        A = multiprocessing.Array("d", N * 3)
-        iter = multiprocessing.Array("d", N * 3)
-        F = multiprocessing.Array("d", N * 3)
-        # for i in range(N):
-        #     y0.append([])
-        #     m.append([])
-        process_num = 0
-        controlevent = multiprocessing.Event()
-        loopevent = multiprocessing.Event()
-        isfreeevent = multiprocessing.Event()
-        if (count >= N):
-            for i in range(N):
+def Verlet_multiprocessing(params, cycle_time):
+    print("Start Verlet-multiprocessing computation")
+    count = multiprocessing.cpu_count() - 1
+    t = np.linspace(0, cycle_time, 101)
+    N = len(params)
+    bod_in_proc = N // count
+    exc = N % count
+    curr_body = 0
+    processes = []
+    e = []
+    sol = multiprocessing.Array("d", N * len(t) * 6)
+    A = multiprocessing.Array("d", N * 3)
+    iter = multiprocessing.Array("d", N * 3)
+    F = multiprocessing.Array("d", N * 3)
+    process_num = 0
+    controlevent = multiprocessing.Event()
+    loopevent = multiprocessing.Event()
+    isfreeevent = multiprocessing.Event()
+    qF = multiprocessing.Queue()
+    qsol = multiprocessing.Queue()
+    qiter = multiprocessing.Queue()
+    if (count >= N):
+        for i in range(N):
+            e.append(multiprocessing.Event())
+            processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(i, i + 1), process_num,
+                                                                               cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
+            processes[i].start()
+            process_num = process_num + 1
+    else:
+        for i in range(count):
+            if exc > 0:
                 e.append(multiprocessing.Event())
-                processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(i, i + 1), process_num,
-                                                                                   time, e[i], controlevent, loopevent, sol, A, F, iter, y0, m)))
+                processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc + 1),
+                                                                                   process_num, cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
                 processes[i].start()
                 process_num = process_num + 1
-        else:
-            for i in range(count):
-                if exc > 0:
-                    e.append(multiprocessing.Event())
-                    processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc + 1),
-                                                                                       process_num, time, e[i], controlevent, loopevent, sol, A, F, iter, y0, m)))
-                    processes[i].start()
-                    process_num = process_num + 1
-                    exc = exc - 1
-                    curr_body = curr_body + bod_in_proc + 1
-                else:
-                    e.append(multiprocessing.Event())
-                    processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc),
-                                                                                       process_num, time, e[i], controlevent, loopevent, sol, A, F, iter, y0, m)))
-                    processes[i].start()
-                    process_num = process_num + 1
-                    curr_body = curr_body + bod_in_proc
-        controlprocess = multiprocessing.Process(target=Sync, args=(e, controlevent, loopevent, isfreeevent))
-        controlprocess.start()
-        print("All set")
-        for i in range(len(processes)):
-            processes[i].join()
-        isfreeevent.set()
-        loopevent.set()
-        controlprocess.join()
-        print("Process finished")
-        sol1 = []
-        for i in range(len(t)):
-            sol1.append([])
-            for j in range(N):
-                sol1[i].append([])
-                sol1[i][j].append(sol[i * N * 6 + j * 6])
-                sol1[i][j].append(sol[i * N * 6 + j * 6 + 1])
-                sol1[i][j].append(sol[i * N * 6 + j * 6 + 2])
-                sol1[i][j].append(sol[i * N * 6 + j * 6 + 3])
-                sol1[i][j].append(sol[i * N * 6 + j * 6 + 4])
-                sol1[i][j].append(sol[i * N * 6 + j * 6 + 5])
-        return sol1
+                exc = exc - 1
+                curr_body = curr_body + bod_in_proc + 1
+            else:
+                e.append(multiprocessing.Event())
+                processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc),
+                                                                                   process_num, cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
+                processes[i].start()
+                process_num = process_num + 1
+                curr_body = curr_body + bod_in_proc
+    tmp_time = time.time()
+    controlprocess = multiprocessing.Process(target=Sync, args=(e, controlevent, loopevent, isfreeevent))
+    controlprocess.start()
+    print("All set")
+    for i in range(len(processes)):
+        processes[i].join()
+    isfreeevent.set()
+    loopevent.set()
+    controlprocess.join()
+    print("Working time: ", time.time() - tmp_time)
+    sol1 = []
+    for i in range(len(t)):
+        sol1.append([])
+        for j in range(N):
+            sol1[i].append([])
+            sol1[i][j].append(sol[i * N * 6 + j * 6])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 1])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 2])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 3])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 4])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 5])
+    return sol1
 
+#Алгоритм Верле с использованием Cython
+def Verlet_cython(params, cycle_time):
+    print("Start Verlet-cython_m_no computation")
+    N = len(params)
+    m = []
+    pos = []
+    vel = []
+    for i in range(N):
+        pos.append(params[i][0])
+        vel.append(params[i][1])
+        m.append(params[i][2])
+    sol = ex3.Verlet_Cython_m_no(np.array(pos), np.array(vel), np.array(m), cycle_time)
+
+    return sol
+
+#Сравнение работы программы для различного числа тел
+def Compare_Verlet():
+    K = 500 #число генерируемых тел
+    N = 1 #число итераций
+    Bodies = BodyGenerator(K)
+    Modes = ["Scipy", "Verlet", "Verlet-threading", "Verlet-multiprocessing", "Verlet-cython", "Verlet-opencl"]
+    avr_time = 0
+    for i in range(N):
+        print("Iteration ", i)
+        mode = "Verlet-cython"
+        tmp_time = time.time()
+        VerletModule(Bodies, 3.154e7, mode)
+        avr_time += (time.time() - tmp_time)
+    avr_time = avr_time / N
+    return avr_time
 
 #Генерация К тел
-def BodyGenerator(K):
-    Bodies = []
-    for i in range(K):
-        Bodies.append([])
-        if i == 0:
-            Bodies[i].append([0, 0, 0])
-            Bodies[i].append([0, 0, 0])
-            m = random.uniform()
+def BodyGenerator(K, dx=1e12):
+    def gen_particle(cen):
+        x = random.uniform(-2 * dx / 3, 2 * dx / 3)
+        y = random.uniform(-2 * dx / 3, 2 * dx / 3)
+        z = random.uniform(-2 * dx / 3, 2 * dx / 3)
+        u = random.uniform(-dx ** 0.3, dx ** 0.3)
+        v = random.uniform(-dx ** 0.3, dx ** 0.3)
+        w = random.uniform(-dx ** 0.3, dx ** 0.3)
+        m = random.uniform(1, 1e5) * 1e22
+        return [[cen[0] + x, cen[1] + y, cen[2] + z], [u, v, w], m]
 
+    random.seed()
+    cur_centre = np.zeros(3)
+    particles = [gen_particle(cur_centre)]
+    k = 1
+    for i in range(K // 2):
+        cur_centre[0] += k * dx * (-1) ** k
+        particles.append(gen_particle(cur_centre))
+        cur_centre[1] += k * dx * (-1) ** k
+        particles.append(gen_particle(cur_centre))
+        cur_centre[2] += k * dx * (-1) ** k
+        particles.append(gen_particle(cur_centre))
+        k += 1
 
-#Вычисление времени работы метода
-def CompTime(methodname, N, M, Bodies):
-    print("Tic-tock")
-    avrtime = 0
-    for i in range(M):
-        start_time = time.time()
-        VerletModule(Bodies, methodname)
-        avrtime = avrtime + (time.time() - start_time)
-    avrtime = avrtime / M
-    return avrtime
+    # Format for computation
+
+    return particles
 
 #Отображение полученных орбит
 def PrintOrbit(plot, sol):
@@ -691,6 +726,9 @@ def PrintOrbit(plot, sol):
     print("Orbit done")
 
 if __name__ == '__main__':
-    root = Tk()
-    CircleGUI(root)
-    root.mainloop()
+    # root = Tk()
+    # CircleGUI(root)
+    # root.mainloop()
+    print("Start Verlet Compare")
+    res = Compare_Verlet()
+    print("Average time ", res)
