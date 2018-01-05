@@ -15,14 +15,15 @@ from scipy import constants
 from scipy import integrate
 import time
 import threading
-from queue import Queue
 import multiprocessing
 from multiprocessing import Process, sharedctypes
-import mpl_toolkits.mplot3d as a3
 import random
 import ex3
+import pyopencl as cl
+import os
 
 colorsdict = {0: 'Red', 1: 'Blue', 2: 'Green', 3: 'Grey', 4: 'Black', 5: 'Red'}
+
 class CircleGUI:
     circles = 0
     def __init__(self, master):
@@ -106,7 +107,6 @@ class CircleGUI:
         filename = asksaveasfilename(filetypes=[("XML files", "*.xml")])
         tree = ET.ElementTree(root)
         tree.write(filename)
-
 
 class PlotArea:
     canvas = 0
@@ -211,7 +211,6 @@ class RadioButt:
         for text in self.Modes:
             self.rb.append(Radiobutton(master, text=text, variable=v, value=text, command=sel).pack(anchor=W))
 
-
 #Хранит круги
 class CircleList:
     circlelist = []
@@ -255,8 +254,9 @@ def VerletModule(Bodies, cycle_time, funcname):
         sol = Verlet_multiprocessing(Bodies, cycle_time)
     if funcname == "Verlet-cython":
         sol = Verlet_cython(Bodies, cycle_time)
+    if funcname == "Verlet-opencl":
+        sol = Verlet_opencl(Bodies, cycle_time)
     return sol
-
 
 #Вычисление положения тел в течение времени time. Params - массив, описывающий тела
 def ScipySolve(params, time):
@@ -291,16 +291,11 @@ def Verlet(params, time):
     t = np.linspace(0, time, 101)
     dt = t[1] - t[0]
     sol = []
-    y0 = []
-    m = []
+    sol.append([])
     for i in range(N):
-        y0.append([params[i][0][0], params[i][0][1], params[i][0][2], params[i][1][0], params[i][1][1], params[i][1][2]])
-        m.append(params[i][2])
-    sol.append(y0)
-    # print("Sol ", 0, sol[0])
+        sol[0].append([params[i][0][0], params[i][0][1], params[i][0][2], params[i][1][0], params[i][1][1], params[i][1][2]])
     A = []
     for j in range(N):
-        # print("A ", i, A)
         A.append([])
         ai1 = 0
         ai2 = 0
@@ -309,25 +304,18 @@ def Verlet(params, time):
             if k != j:
                 r = np.linalg.norm(
                     [sol[0][k][0] - sol[0][j][0], sol[0][k][1] - sol[0][j][1], sol[0][k][2] - sol[0][j][2]]) ** 3
-                tmp = G * m[k] / r
+                tmp = G * params[k][2] / r
                 ai1 = ai1 + tmp * (sol[0][k][0] - sol[0][j][0])
                 ai2 = ai2 + tmp * (sol[0][k][1] - sol[0][j][1])
                 ai3 = ai3 + tmp * (sol[0][k][2] - sol[0][j][2])
         A[j].extend([ai1, ai2, ai3])
-    # print("A: ", A)
     for i in range(1, len(t)):
-        # print("A ", i, A)
         iter = []
         sol.append([])
         for j in range(N):
             iter.append(sol[i - 1][j][0] + sol[i - 1][j][3] * dt + 0.5 * A[j][0] * dt ** 2)
             iter.append(sol[i - 1][j][1] + sol[i - 1][j][4] * dt + 0.5 * A[j][1] * dt ** 2)
             iter.append(sol[i - 1][j][2] + sol[i - 1][j][5] * dt + 0.5 * A[j][2] * dt ** 2)
-        # print("A ", i, A)
-        # print("iter ", i, iter)
-        # print("sol[i - 1][0][0] ", i - 1, sol[i - 1][0])
-        # print("sol[i - 1][0][3] ", i - 1, sol[i - 1][3])
-        # print("0.5 * A[0][0] * dt ** 2 ", i - 1, 0.5 * A[0][0] * dt ** 2)
         F = []
         for j in range(N):
             F.append([])
@@ -337,7 +325,7 @@ def Verlet(params, time):
             for k in range(N):
                 if k != j:
                     r = np.linalg.norm([iter[k * 3] - iter[j * 3], iter[k * 3 + 1] - iter[j * 3 + 1], iter[k * 3 + 2] - iter[j * 3 + 2]]) ** 3
-                    tmp = G * m[k] / r
+                    tmp = G * params[k][2] / r
                     f1 = f1 + tmp * (iter[k * 3] - iter[j * 3])
                     f2 = f2 + tmp * (iter[k * 3 + 1] - iter[j * 3 + 1])
                     f3 = f3 + tmp * (iter[k * 3 + 2] - iter[j * 3 + 2])
@@ -479,8 +467,99 @@ def Verlet_threading(params, time):
     isfreeevent.set()
     controlthread.join()
     return sol
+#
+# def Verlet_multiprocessing_func(params, body_nums, cycle_time, event, controlevent, loopthread, sol, A, F, iter):
+#     N = len(params)
+#     G = constants.G
+#     tmp = range(N)
+#     t = np.linspace(0, cycle_time, 101)
+#     dt = t[1] - t[0]
+#     for i in body_nums:
+#         sol[i * 6] = params[i][0][0]
+#         sol[i * 6 + 1] = params[i][0][1]
+#         sol[i * 6 + 2] = params[i][0][2]
+#         sol[i * 6 + 3] = params[i][1][0]
+#         sol[i * 6 + 4] = params[i][1][1]
+#         sol[i * 6 + 5] = params[i][1][2]
+#     # sync
+#     loopthread.set()
+#     event.set()
+#     controlevent.wait()
+#     controlevent.clear()
+#     ai1 = 0
+#     ai2 = 0
+#     ai3 = 0
+#     for j in body_nums:
+#         for k in range(N):
+#             if k != j:
+#                 r = np.linalg.norm(
+#                     [sol[k * 6] - sol[j * 6], sol[k * 6 + 1] - sol[j * 6 + 1],
+#                      sol[k * 6 + 2] - sol[j * 6 + 2]]) ** 3
+#                 tmp = G * params[k][2] / r
+#                 ai1 = ai1 + tmp * (sol[k * 6] - sol[j * 6])
+#                 ai2 = ai2 + tmp * (sol[k * 6 + 1] - sol[j * 6 + 1])
+#                 ai3 = ai3 + tmp * (sol[k * 6 + 2] - sol[j * 6 + 2])
+#         A[j * 3] = ai1
+#         A[j * 3 + 1] = ai2
+#         A[j * 3 + 2] = ai3
+#     # sync
+#     loopthread.set()
+#     event.set()
+#     controlevent.wait()
+#     controlevent.clear()
+#     for i in range(1, len(t)):
+#         print("Iteration ", i)
+#         for j in body_nums:
+#             iter[j * 3] = (sol[(i - 1) * N * 6 + j * 6] + sol[(i - 1) * N * 6 + j * 6 + 3] * dt + 0.5 * A[j * 3] * dt ** 2)
+#             iter[j * 3 + 1] = (sol[(i - 1) * N * 6 + j * 6 + 1] + sol[(i - 1) * N * 6 + j * 6 + 4] * dt + 0.5 * A[j * 3 + 1] * dt ** 2)
+#             iter[j * 3 + 2] = (sol[(i - 1) * N * 6 + j * 6 + 2] + sol[(i - 1) * N * 6 + j * 6 + 5] * dt + 0.5 * A[j * 3 + 2] * dt ** 2)
+#         # sync
+#         loopthread.set()
+#         event.set()
+#         controlevent.wait()
+#         controlevent.clear()
+#         for j in body_nums:
+#             f1 = 0
+#             f2 = 0
+#             f3 = 0
+#             for k in range(N):
+#                 if k != j:
+#                     r = np.linalg.norm([iter[k * 3] - iter[j * 3], iter[k * 3 + 1] - iter[j * 3 + 1],
+#                                         iter[k * 3 + 2] - iter[j * 3 + 2]]) ** 3
+#                     tmp = G * params[k][2] / r
+#                     f1 = f1 + tmp * (iter[k * 3] - iter[j * 3])
+#                     f2 = f2 + tmp * (iter[k * 3 + 1] - iter[j * 3 + 1])
+#                     f3 = f3 + tmp * (iter[k * 3 + 2] - iter[j * 3 + 2])
+#             F[j * 3] = f1
+#             F[j * 3 + 1] = f2
+#             F[j * 3 + 2] = f3
+#         # sync
+#         loopthread.set()
+#         event.set()
+#         controlevent.wait()
+#         controlevent.clear()
+#         for j in body_nums:
+#             sol[i * N * 6 + j * 6] = iter[j * 3]
+#             sol[i * N * 6 + j * 6 + 1] = iter[j * 3 + 1]
+#             sol[i * N * 6 + j * 6 + 2] = iter[j * 3 + 2]
+#             sol[i * N * 6 + j * 6 + 3] = sol[(i - 1) * N * 6 + j * 6 + 3] + 0.5 * (F[j * 3] + A[j * 3]) * dt
+#             sol[i * N * 6 + j * 6 + 4] = sol[(i - 1) * N * 6 + j * 6 + 4] + 0.5 * (F[j * 3 + 1] + A[j * 3 + 1]) * dt
+#             sol[i * N * 6 + j * 6 + 5] = sol[(i - 1) * N * 6 + j * 6 + 5] + 0.5 * (F[j * 3 + 2] + A[j * 3 + 2]) * dt
+#         # # sync
+#         # loopthread.set()
+#         # event.set()
+#         # controlevent.wait()
+#         # controlevent.clear()
+#         for j in body_nums:
+#             A[j * 3] = F[j * 3]
+#             A[j * 3 + 1] = F[j * 3 + 1]
+#             A[j * 3 + 2] = F[j * 3 + 2]
+#         # local_A = F
+#         # print(i, time.time() - tmp_time)
+#     # print("Finished")
+#     return sol
 
-def Verlet_multiprocessing_func(params, body_nums, process_num, cycle_time, event, controlevent, loopthread, sol, A, F, iter):
+def Verlet_multiprocessing_func(params, body_nums, process_num, cycle_time, events1, events2, sol, q, A, processes):
     N = len(params)
     G = constants.G
     tmp = range(N)
@@ -493,92 +572,85 @@ def Verlet_multiprocessing_func(params, body_nums, process_num, cycle_time, even
         sol[i * 6 + 3] = params[i][1][0]
         sol[i * 6 + 4] = params[i][1][1]
         sol[i * 6 + 5] = params[i][1][2]
-    # sync
-    loopthread.set()
-    event.set()
-    controlevent.wait()
-    controlevent.clear()
     ai1 = 0
     ai2 = 0
     ai3 = 0
+    iter = np.zeros((N * 3))
     for j in body_nums:
         for k in range(N):
             if k != j:
                 r = np.linalg.norm(
-                    [sol[k * 6] - sol[j * 6], sol[k * 6 + 1] - sol[j * 6 + 1],
-                     sol[k * 6 + 2] - sol[j * 6 + 2]]) ** 3
+                    [params[k][0][0] - params[j][0][0], params[k][0][1] - params[j][0][1],
+                     params[k][0][2] - params[j][0][2]]) ** 3
                 tmp = G * params[k][2] / r
-                ai1 = ai1 + tmp * (sol[k * 6] - sol[j * 6])
-                ai2 = ai2 + tmp * (sol[k * 6 + 1] - sol[j * 6 + 1])
-                ai3 = ai3 + tmp * (sol[k * 6 + 2] - sol[j * 6 + 2])
+                ai1 += tmp * (params[k][0][0] - params[j][0][0])
+                ai2 += tmp * (params[k][0][1] - params[j][0][1])
+                ai3 += tmp * (params[k][0][2] - params[j][0][2])
         A[j * 3] = ai1
         A[j * 3 + 1] = ai2
         A[j * 3 + 2] = ai3
+    events1[process_num].set()
     # sync
-    loopthread.set()
-    event.set()
-    controlevent.wait()
-    controlevent.clear()
+    if process_num == 0:
+        for j in range(processes):
+            events1[j].wait()
+            events1[j].clear()
+        for j in range(processes):
+            events2[j].set()
+    else:
+        events2[process_num].wait()
+        events2[process_num].clear()
     for i in range(1, len(t)):
-        # sync
-        loopthread.set()
-        event.set()
-        controlevent.wait()
-        controlevent.clear()
+        # print("Iteration ", i)
         for j in body_nums:
             iter[j * 3] = (sol[(i - 1) * N * 6 + j * 6] + sol[(i - 1) * N * 6 + j * 6 + 3] * dt + 0.5 * A[j * 3] * dt ** 2)
             iter[j * 3 + 1] = (sol[(i - 1) * N * 6 + j * 6 + 1] + sol[(i - 1) * N * 6 + j * 6 + 4] * dt + 0.5 * A[j * 3 + 1] * dt ** 2)
             iter[j * 3 + 2] = (sol[(i - 1) * N * 6 + j * 6 + 2] + sol[(i - 1) * N * 6 + j * 6 + 5] * dt + 0.5 * A[j * 3 + 2] * dt ** 2)
-        # sync
-        loopthread.set()
-        event.set()
-        controlevent.wait()
-        controlevent.clear()
-        for j in body_nums:
-            f1 = 0
-            f2 = 0
-            f3 = 0
-            for k in range(N):
-                if k != j:
-                    r = np.linalg.norm([iter[k * 3] - iter[j * 3], iter[k * 3 + 1] - iter[j * 3 + 1],
-                                        iter[k * 3 + 2] - iter[j * 3 + 2]]) ** 3
-                    tmp = G * params[k][2] / r
-                    f1 = f1 + tmp * (iter[k * 3] - iter[j * 3])
-                    f2 = f2 + tmp * (iter[k * 3 + 1] - iter[j * 3 + 1])
-                    f3 = f3 + tmp * (iter[k * 3 + 2] - iter[j * 3 + 2])
-            F[j * 3] = f1
-            F[j * 3 + 1] = f2
-            F[j * 3 + 2] = f3
-        # sync
-        loopthread.set()
-        event.set()
-        controlevent.wait()
-        controlevent.clear()
-        for j in body_nums:
             sol[i * N * 6 + j * 6] = iter[j * 3]
             sol[i * N * 6 + j * 6 + 1] = iter[j * 3 + 1]
             sol[i * N * 6 + j * 6 + 2] = iter[j * 3 + 2]
-            sol[i * N * 6 + j * 6 + 3] = sol[(i - 1) * N * 6 + j * 6 + 3] + 0.5 * (F[j * 3] + A[j * 3]) * dt
-            sol[i * N * 6 + j * 6 + 4] = sol[(i - 1) * N * 6 + j * 6 + 4] + 0.5 * (F[j * 3 + 1] + A[j * 3 + 1]) * dt
-            sol[i * N * 6 + j * 6 + 5] = sol[(i - 1) * N * 6 + j * 6 + 5] + 0.5 * (F[j * 3 + 2] + A[j * 3 + 2]) * dt
-        # # sync
-        # loopthread.set()
-        # event.set()
-        # controlevent.wait()
-        # controlevent.clear()
-        for j in body_nums:
-            A[j * 3] = F[j * 3]
-            A[j * 3 + 1] = F[j * 3 + 1]
-            A[j * 3 + 2] = F[j * 3 + 2]
-        # local_A = F
-        # print(i, time.time() - tmp_time)
-    # print("Finished")
+            q.put([j, iter[j * 3], iter[j * 3 + 1], iter[j * 3 + 2]])
+        events1[process_num].set()
+        # sync
+        if process_num == 0:
+            for j in range(processes):
+                events1[j].wait()
+                events1[j].clear()
+            for j in range(N):
+                qtmp = q.get()
+                iter[qtmp[0] * 3] = qtmp[1]
+                iter[qtmp[0] * 3 + 1] = qtmp[2]
+                iter[qtmp[0] * 3 + 2] = qtmp[3]
+            for j in range(N):
+                f1 = 0
+                f2 = 0
+                f3 = 0
+                for k in range(N):
+                    if k != j:
+                        r = np.linalg.norm([iter[k * 3] - iter[j * 3], iter[k * 3 + 1] - iter[j * 3 + 1],
+                                            iter[k * 3 + 2] - iter[j * 3 + 2]]) ** 3
+                        tmp = G * params[k][2] / r
+                        f1 += tmp * (iter[k * 3] - iter[j * 3])
+                        f2 += tmp * (iter[k * 3 + 1] - iter[j * 3 + 1])
+                        f3 += tmp * (iter[k * 3 + 2] - iter[j * 3 + 2])
+                sol[i * N * 6 + j * 6 + 3] = sol[(i - 1) * N * 6 + j * 6 + 3] + 0.5 * (f1 + A[j * 3]) * dt
+                sol[i * N * 6 + j * 6 + 4] = sol[(i - 1) * N * 6 + j * 6 + 4] + 0.5 * (f2 + A[j * 3 + 1]) * dt
+                sol[i * N * 6 + j * 6 + 5] = sol[(i - 1) * N * 6 + j * 6 + 5] + 0.5 * (f3 + A[j * 3 + 2]) * dt
+                A[j * 3] = f1
+                A[j * 3 + 1] = f2
+                A[j * 3 + 2] = f3
+            for j in range(processes):
+                events2[j].set()
+        else:
+            events2[process_num].wait()
+            events2[process_num].clear()
+
     return sol
 
 #Алгоритм Верле с мультипроцессингом
 def Verlet_multiprocessing(params, cycle_time):
     print("Start Verlet-multiprocessing computation")
-    count = multiprocessing.cpu_count() - 1
+    count = multiprocessing.cpu_count() + 1
     t = np.linspace(0, cycle_time, 101)
     N = len(params)
     bod_in_proc = N // count
@@ -586,51 +658,53 @@ def Verlet_multiprocessing(params, cycle_time):
     curr_body = 0
     processes = []
     e = []
+    e1 = []
     sol = multiprocessing.Array("d", N * len(t) * 6)
     A = multiprocessing.Array("d", N * 3)
     iter = multiprocessing.Array("d", N * 3)
     F = multiprocessing.Array("d", N * 3)
     process_num = 0
-    controlevent = multiprocessing.Event()
-    loopevent = multiprocessing.Event()
-    isfreeevent = multiprocessing.Event()
-    qF = multiprocessing.Queue()
-    qsol = multiprocessing.Queue()
+
+    # controlevent = multiprocessing.Event()
+    # loopevent = multiprocessing.Event()
+    # isfreeevent = multiprocessing.Event()
     qiter = multiprocessing.Queue()
     if (count >= N):
         for i in range(N):
             e.append(multiprocessing.Event())
+            e1.append(multiprocessing.Event())
+            # processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(i, i + 1),
+            #                                                                    cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
+        for i in range(N):
             processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(i, i + 1), process_num,
-                                                                               cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
+                                                                               cycle_time, e, e1, sol, qiter, F, N)))
             processes[i].start()
             process_num = process_num + 1
     else:
         for i in range(count):
+            e.append(multiprocessing.Event())
+            e1.append(multiprocessing.Event())
+        for i in range(count):
             if exc > 0:
-                e.append(multiprocessing.Event())
-                processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc + 1),
-                                                                                   process_num, cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
+                # processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc + 1),
+                #                                                                    cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
+                processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc + 1), process_num,
+                                                                                   cycle_time, e, e1, sol, qiter, F, count)))
                 processes[i].start()
                 process_num = process_num + 1
                 exc = exc - 1
                 curr_body = curr_body + bod_in_proc + 1
             else:
-                e.append(multiprocessing.Event())
-                processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc),
-                                                                                   process_num, cycle_time, e[i], controlevent, loopevent, sol, A, F, iter)))
+                processes.append(Process(target=Verlet_multiprocessing_func, args=(params, range(curr_body, curr_body + bod_in_proc), process_num,
+                                                                                   cycle_time, e, e1, sol, qiter, F, count)))
                 processes[i].start()
                 process_num = process_num + 1
                 curr_body = curr_body + bod_in_proc
-    tmp_time = time.time()
-    controlprocess = multiprocessing.Process(target=Sync, args=(e, controlevent, loopevent, isfreeevent))
-    controlprocess.start()
-    print("All set")
+    # tmp_time = time.time()
+    # print("All set")
     for i in range(len(processes)):
         processes[i].join()
-    isfreeevent.set()
-    loopevent.set()
-    controlprocess.join()
-    print("Working time: ", time.time() - tmp_time)
+    # print("Working time: ", time.time() - tmp_time)
     sol1 = []
     for i in range(len(t)):
         sol1.append([])
@@ -655,23 +729,186 @@ def Verlet_cython(params, cycle_time):
         pos.append(params[i][0])
         vel.append(params[i][1])
         m.append(params[i][2])
-    sol = ex3.Verlet_Cython_m_no(np.array(pos), np.array(vel), np.array(m), cycle_time)
+    sol = ex3.Verlet_Cython_nm_no(np.array(pos), np.array(vel), np.array(m), cycle_time)
 
     return sol
+
+#Алгоритм Верле с использованием OpenCL
+def Verlet_opencl(params, cycle_time):
+    print("Start Verlet-opencl")
+    N = len(params)
+    plat = cl.get_platforms()
+    CPU = plat[0].get_devices()
+    # try:
+    #     GPU = plat[1].get_devices()
+    # except IndexError:
+    #     GPU = "none"
+    #
+    # # Create context for GPU/CPU
+    # if GPU != "none":
+    #     print("Device ", GPU)
+    #     ctx = cl.Context(GPU)
+    # else:
+    # print("Device ", CPU)
+    ctx = cl.Context(CPU)
+    # ctx = cl.create_some_context()
+    queue = cl.CommandQueue(ctx)
+    m = []
+    pos = []
+    vel = []
+    for i in range(N):
+        pos.append(params[i][0][0])
+        pos.append(params[i][0][1])
+        pos.append(params[i][0][2])
+        vel.append(params[i][1][0])
+        vel.append(params[i][1][1])
+        vel.append(params[i][1][2])
+        m.append(params[i][2])
+
+    m = np.array(m, dtype=np.dtype("f4"))
+    pos = np.array(pos, dtype=np.dtype("f4"))
+    vel = np.array(vel, dtype=np.dtype("f4"))
+    t = np.linspace(0, cycle_time, 101)
+    iter = np.empty((N * 3), dtype=np.dtype("f4"))
+    sol = np.empty((len(t) * 6 * N), dtype=np.dtype("f4"))
+    A = np.empty((N * 3), dtype=np.dtype("f4"))
+    N_arr = np.array(N, dtype=np.int)
+    count_arr = np.array(len(t), dtype=np.int)
+    dt_arr = np.array(t[1] - t[0], dtype=np.dtype("f4"))
+
+    mf = cl.mem_flags
+    m_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=m)
+    pos_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=pos)
+    vel_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=vel)
+    iter_buf = cl.Buffer(ctx, mf.WRITE_ONLY, iter.nbytes)
+    sol_buf = cl.Buffer(ctx, mf.WRITE_ONLY, sol.nbytes)
+    A_buf = cl.Buffer(ctx, mf.WRITE_ONLY, A.nbytes)
+    N_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=N_arr)
+    count_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=count_arr)
+    dt_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=dt_arr)
+
+    prg = cl.Program(ctx, """
+                            __kernel void Verlet_cl(__global float *pos, 
+                                                    __global float *vel,
+                                                    __global float *m,
+                                                    __global float *sol,
+                                                    __global float *iter,
+                                                    __global float *A,
+                                                    __global int *N_buf,
+                                                    __global int *count_buf,
+                                                    __global float *dt_buf)
+                            {
+                                int N = *N_buf;
+                                int count = *count_buf;
+                                float G = 6.67e-11;
+                                float dt = *dt_buf;
+                                for (int i = 0; i < N; i++)
+                                {
+                                    sol[i * 6] = pos[i * 3];
+                                    sol[i * 6 + 1] = pos[i * 3 + 1];
+                                    sol[i * 6 + 2] = pos[i * 3 + 2];
+                                    sol[i * 6 + 3] = vel[i * 3];
+                                    sol[i * 6 + 4] = vel[i * 3 + 1];
+                                    sol[i * 6 + 5] = vel[i * 3 + 2];
+                                }
+                                for(int j = 0; j < N; j++)
+                                {
+                                    float ai1 = 0;
+                                    float ai2 = 0;
+                                    float ai3 = 0;
+                                    for(int k = 0; k < N; k++)
+                                    {
+                                        if(k != j)
+                                        {
+                                            float r = pow((sol[k * 6] - sol[j * 6]) * (sol[k * 6] - sol[j * 6])
+                                                        + (sol[k * 6 + 1] - sol[j * 6 + 1]) * (sol[k * 6 + 1] - sol[j * 6 + 1])
+                                                        + (sol[k * 6 + 2] - sol[j * 6 + 2]) * (sol[k * 6 + 2] - sol[j * 6 + 2]), 1.5f);
+                                            float tmp = G * m[k] / r;
+                                            ai1 += tmp * (sol[k * 6] - sol[j * 6]);
+                                            ai2 += tmp * (sol[k * 6 + 1] - sol[j * 6 + 1]);
+                                            ai3 += tmp * (sol[k * 6 + 2] - sol[j * 6 + 2]);
+                                        }
+                                    }
+                                    A[j * 3] = ai1;
+                                    A[j * 3 + 1] = ai2;
+                                    A[j * 3 + 2] = ai3;
+                                } 
+                                for (int i = 1; i < count; i++)
+                                {
+                                    for (int j = 0; j < N; j++)
+                                    {
+                                        iter[j * 3] = sol[(i - 1) * N * 6 + j * 6] + sol[(i - 1) * N * 6 + j * 6 + 3] * dt + 0.5 * A[j * 3] * dt * dt;
+                                        iter[j * 3 + 1] = sol[(i - 1) * N * 6 + j * 6 + 1] + sol[(i - 1) * N * 6 + j * 6 + 4] * dt + 0.5 * A[j * 3 + 1] * dt * dt;
+                                        iter[j * 3 + 2] = sol[(i - 1) * N * 6 + j * 6 + 2] + sol[(i - 1) * N * 6 + j * 6 + 5] * dt + 0.5 * A[j * 3 + 2] * dt * dt;
+                                    }
+                                    for (int j = 0; j < N; j++)
+                                    {
+                                        float f1 = 0;
+                                        float f2 = 0;
+                                        float f3 = 0;
+                                        for (int k = 0; k < N; k++)
+                                        {
+                                            if (k != j)
+                                            {
+                                                float r = pow((iter[k * 3] - iter[j * 3]) * (iter[k * 3] - iter[j * 3])
+                                                        + (iter[k * 3 + 1] - iter[j * 3 + 1]) * (iter[k * 3 + 1] - iter[j * 3 + 1])
+                                                        + (iter[k * 3 + 2] - iter[j * 3 + 2]) * (iter[k * 3 + 2] - iter[j * 3 + 2]), 1.5f);
+                                                float tmp = G * m[k] / r;
+                                                f1 += tmp * (iter[k * 3] - iter[j * 3]);
+                                                f2 += tmp * (iter[k * 3 + 1] - iter[j * 3 + 1]);
+                                                f3 += tmp * (iter[k * 3 + 2] - iter[j * 3 + 2]);
+                                            }
+                                        }
+                                        sol[i * N * 6 + j * 6] = iter[j * 3];
+                                        sol[i * N * 6 + j * 6 + 1] = iter[j * 3 + 1];
+                                        sol[i * N * 6 + j * 6 + 2] = iter[j * 3 + 2];
+                                        sol[i * N * 6 + j * 6 + 3] = sol[(i - 1) * N * 6 + j * 6 + 3] + 0.5 * (f1 + A[j * 3]) * dt;
+                                        sol[i * N * 6 + j * 6 + 4] = sol[(i - 1) * N * 6 + j * 6 + 4] + 0.5 * (f2 + A[j * 3 + 1]) * dt;
+                                        sol[i * N * 6 + j * 6 + 5] = sol[(i - 1) * N * 6 + j * 6 + 5] + 0.5 * (f3 + A[j * 3 + 2]) * dt;
+                                        A[j * 3] = f1;
+                                        A[j * 3 + 1] = f2;
+                                        A[j * 3 + 2] = f3;
+                                    }
+                                }
+                            } 
+        
+    """).build()
+    # result = np.empty_like(sol)
+    # print("Shape ", sol.shape)
+    prg.Verlet_cl(queue, (1, ), None, pos_buf, vel_buf, m_buf, sol_buf, iter_buf, A_buf, N_buf, count_buf, dt_buf)
+    cl.enqueue_read_buffer(queue, sol_buf, sol).wait()
+    # print("sol: ", sol)
+    sol1 = []
+    for i in range(len(t)):
+        sol1.append([])
+        for j in range(N):
+            sol1[i].append([])
+            sol1[i][j].append(sol[i * N * 6 + j * 6])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 1])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 2])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 3])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 4])
+            sol1[i][j].append(sol[i * N * 6 + j * 6 + 5])
+    print("Finished")
+    queue.finish()
+    return sol1
+
 
 #Сравнение работы программы для различного числа тел
 def Compare_Verlet():
     K = 500 #число генерируемых тел
-    N = 1 #число итераций
+    print("Body number: ", K)
+    N = 10 #число итераций
     Bodies = BodyGenerator(K)
     Modes = ["Scipy", "Verlet", "Verlet-threading", "Verlet-multiprocessing", "Verlet-cython", "Verlet-opencl"]
     avr_time = 0
     for i in range(N):
-        print("Iteration ", i)
-        mode = "Verlet-cython"
+        # print("Iteration ", i)
+        mode = "Verlet-opencl"
         tmp_time = time.time()
         VerletModule(Bodies, 3.154e7, mode)
         avr_time += (time.time() - tmp_time)
+        # print("Time of iteration: ", time.time() - tmp_time)
     avr_time = avr_time / N
     return avr_time
 
@@ -726,6 +963,8 @@ def PrintOrbit(plot, sol):
     print("Orbit done")
 
 if __name__ == '__main__':
+    os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+    os.environ['PYOPENCL_CTX'] = '1'
     # root = Tk()
     # CircleGUI(root)
     # root.mainloop()
