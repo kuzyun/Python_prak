@@ -23,6 +23,7 @@ import pyopencl as cl
 import os
 
 colorsdict = {0: 'Red', 1: 'Blue', 2: 'Green', 3: 'Grey', 4: 'Black', 5: 'Red'}
+Cython_Modes = ["Verlet_Cython_m_o", "Verlet_Cython_nm_no", "Verlet_Cython_nm_o", "Verlet_Cython_m_no"]
 
 class CircleGUI:
     circles = 0
@@ -47,7 +48,16 @@ class CircleGUI:
         savebutton = Button(master, text="Save", command=lambda : self.SaveFile(circles=self.circles, plot=plot,
                                                                                 colorpick=colorpick, slider=slider))
         savebutton.pack(fill=X)
-        rb = RadioButt(tabs.Model, plot, t)
+
+
+        rad = StringVar()
+        rad.set("Verlet_Cython_m_o")
+        i = 0
+        for text in Cython_Modes:
+            Radiobutton(tabs.Model, text=text, variable=rad, value=text).grid(row=i, column=15, sticky=W)
+            i += 1
+
+        rb = RadioButt(tabs.Model, plot, t, rad)
 
         def OnMove(event, coord):
             x, y = event.xdata, event.ydata
@@ -189,7 +199,7 @@ class Slider:
 class RadioButt:
     rb = []
     Modes = ["Scipy", "Verlet", "Verlet-threading", "Verlet-multiprocessing", "Verlet-cython", "Verlet-opencl"]
-    def __init__(self, master, plot, t):
+    def __init__(self, master, plot, t, rad):
         def sel():
             selection = v.get()
             Sun = [[0, 0, 0], [0, 0, 0], 1.99e30]
@@ -202,14 +212,16 @@ class RadioButt:
             Bodies = [Sun, Moon, Earth, Mercury, Mars, Body]
             t.set("Computation time: ")
             start_time = time.time()
-            sol = VerletModule(Bodies, time_cycle, selection)
+            sol = VerletModule(Bodies, time_cycle, selection, rad)
             t.set("Computation time: " + str(time.time() - start_time))
             PrintOrbit(plot, sol)
 
         v = StringVar()
         v.set(1)
+        i = 0
         for text in self.Modes:
-            self.rb.append(Radiobutton(master, text=text, variable=v, value=text, command=sel).pack(anchor=W))
+            self.rb.append(Radiobutton(master, text=text, variable=v, value=text, command=sel).grid(row=i, column=1, sticky=W))
+            i += 1
 
 #Хранит круги
 class CircleList:
@@ -243,7 +255,7 @@ def pend(y, t, m):
     return dydt
 
 #Модуль для всех методов Верле
-def VerletModule(Bodies, cycle_time, funcname):
+def VerletModule(Bodies, cycle_time, funcname, rad):
     if funcname == "Scipy":
         sol = ScipySolve(Bodies, cycle_time)
     if funcname == "Verlet":
@@ -253,7 +265,7 @@ def VerletModule(Bodies, cycle_time, funcname):
     if funcname == "Verlet-multiprocessing":
         sol = Verlet_multiprocessing(Bodies, cycle_time)
     if funcname == "Verlet-cython":
-        sol = Verlet_cython(Bodies, cycle_time)
+        sol = Verlet_cython(Bodies, cycle_time, rad)
     if funcname == "Verlet-opencl":
         sol = Verlet_opencl(Bodies, cycle_time)
     return sol
@@ -719,8 +731,8 @@ def Verlet_multiprocessing(params, cycle_time):
     return sol1
 
 #Алгоритм Верле с использованием Cython
-def Verlet_cython(params, cycle_time):
-    print("Start Verlet-cython_m_no computation")
+def Verlet_cython(params, cycle_time, rad):
+    print("Start Verlet-cython computation")
     N = len(params)
     m = []
     pos = []
@@ -729,7 +741,15 @@ def Verlet_cython(params, cycle_time):
         pos.append(params[i][0])
         vel.append(params[i][1])
         m.append(params[i][2])
-    sol = ex3.Verlet_Cython_nm_no(np.array(pos), np.array(vel), np.array(m), cycle_time)
+    print("rad ", rad)
+    if rad.get() == "Verlet_Cython_m_o":
+        sol = ex3.Verlet_Cython_m_o(np.array(pos), np.array(vel), np.array(m), cycle_time)
+    if rad.get() == "Verlet_Cython_nm_no":
+        sol = ex3.Verlet_Cython_nm_no(np.array(pos), np.array(vel), np.array(m), cycle_time)
+    if rad.get() == "Verlet_Cython_nm_o":
+        sol = ex3.Verlet_Cython_nm_o(np.array(pos), np.array(vel), np.array(m), cycle_time)
+    if rad.get() == "Verlet_Cython_m_no":
+        sol = ex3.Verlet_Cython_m_no(np.array(pos), np.array(vel), np.array(m), cycle_time)
 
     return sol
 
@@ -900,7 +920,6 @@ def Compare_Verlet():
     print("Body number: ", K)
     N = 10 #число итераций
     Bodies = BodyGenerator(K)
-    Modes = ["Scipy", "Verlet", "Verlet-threading", "Verlet-multiprocessing", "Verlet-cython", "Verlet-opencl"]
     avr_time = 0
     for i in range(N):
         # print("Iteration ", i)
@@ -963,11 +982,11 @@ def PrintOrbit(plot, sol):
     print("Orbit done")
 
 if __name__ == '__main__':
-    os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
-    os.environ['PYOPENCL_CTX'] = '1'
-    # root = Tk()
-    # CircleGUI(root)
-    # root.mainloop()
-    print("Start Verlet Compare")
-    res = Compare_Verlet()
-    print("Average time ", res)
+    # os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+    # os.environ['PYOPENCL_CTX'] = '1'
+    root = Tk()
+    CircleGUI(root)
+    root.mainloop()
+    # print("Start Verlet Compare")
+    # res = Compare_Verlet()
+    # print("Average time ", res)
